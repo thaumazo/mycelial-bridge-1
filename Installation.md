@@ -18,3 +18,7 @@ Enable events and add a Request URL (for local development, use something like N
 Subscribe to events like:
 message.channels (to capture messages sent to channels)
 reaction_added (to capture reactions like emoticons)
+
+
+After changes are made and main.py is restarted, remember to refresh Event Subscriptions
+
