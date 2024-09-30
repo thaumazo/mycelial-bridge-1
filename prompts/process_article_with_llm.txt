@@ -1,3 +1,10 @@
-Analyze the following article and provide a summary:
+Analyze the following article and provide a summary that highlights in clear, concise and bullet point form:
+- Key events
+- Key people
+- Key organizations
+- Identified needs
+- Identified responses
+
+The goal is to support intelligence gathering by crisis response organizers.
 Article:
 {{article_text}}

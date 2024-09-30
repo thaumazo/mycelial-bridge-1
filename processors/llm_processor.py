@@ -22,16 +22,20 @@ def load_prompt(prompt_file):
     with open(f"prompts/{prompt_file}", "r") as file:
         return file.read()
 
+import openai
+
 def process_with_openai(prompt):
-    import openai
-    # Use the OpenAI API to process the prompt
-    openai.api_key = llm_config["api_key"]
-    response = openai.Completion.create(
-        engine="text-davinci-003",  # Use the desired model
-        prompt=prompt,
-        max_tokens=150
+    # If using a GPT-3.5-turbo or GPT-4 model (chat-based models)
+    response = openai.ChatCompletion.create(
+        model="gpt-4o-mini",  # You can switch this to "gpt-4" if needed
+        messages=[
+            {"role": "system", "content": "You are a helpful assistant."},
+            {"role": "user", "content": prompt},
+        ]
     )
-    return response.choices[0].text.strip()
+
+    # Extract the generated response
+    return response['choices'][0]['message']['content']
 
 def process_with_gpt4all(prompt):
     # Implement processing using GPT4All or another local model
