@@ -1,5 +1,6 @@
 import requests
 from flask import jsonify
+from newspaper import Article  # Ensure this import is present
 from integrations.platform_interface import PlatformIntegration
 from processors.llm_processor import process_article_with_llm
 from utils.article_processing import extract_urls_from_text
@@ -9,8 +10,7 @@ class SlackIntegration(PlatformIntegration):
         self.bot_token = bot_token
 
     def handle_event(self, data):
-        # Add detailed logging
-        print(f"Received event data: {data}")
+        print(f"\nReceived event data: {data}")
         
         if "challenge" in data:
             print("Responding to Slack verification challenge.")
@@ -54,6 +54,18 @@ class SlackIntegration(PlatformIntegration):
             return self.fetch_message(event["item"]["ts"], event["item"]["channel"])
         print(f"Reaction '{reaction}' not handled.")
         return {"status": "Reaction not handled"}, 200
+
+    def fetch_article(self, url):
+        print(f"Fetching article from URL: {url}")
+        try:
+            # Use Newspaper3k to extract the article content
+            article = Article(url)
+            article.download()
+            article.parse()
+            return article.text
+        except Exception as e:
+            print(f"Error fetching article: {e}")
+            return None
 
     def fetch_message(self, message_id, channel):
         print(f"Fetching message with ID {message_id} from channel {channel}")
