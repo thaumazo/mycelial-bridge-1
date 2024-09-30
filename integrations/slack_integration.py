@@ -10,7 +10,7 @@ class SlackIntegration(PlatformIntegration):
         self.bot_token = bot_token
 
     def handle_event(self, data):
-        print(f"\nReceived event data: {data}")
+        print(f"Received event data: {data}")
         
         if "challenge" in data:
             print("Responding to Slack verification challenge.")
@@ -20,10 +20,12 @@ class SlackIntegration(PlatformIntegration):
             event_type = data["event"]["type"]
             print(f"Detected event type: {event_type}")
             
+            # Handle the message event, but ignore subtypes (like message_changed or message_deleted)
             if event_type == "message" and "subtype" not in data["event"]:
-                print(f"Processing message event in channel {data['event']['channel']}")
-                return self.process_message(data["event"]["text"], data["event"]["channel"])
-
+                print(f"New message event in channel {data['event']['channel']}, but waiting for a reaction before processing.")
+                return jsonify({"status": "Message event received but ignored"}), 200
+            
+            # Handle the reaction added event
             elif event_type == "reaction_added":
                 print(f"Processing reaction added event for reaction {data['event']['reaction']}")
                 return self.process_reaction(data["event"])
@@ -49,9 +51,11 @@ class SlackIntegration(PlatformIntegration):
     def process_reaction(self, event):
         reaction = event["reaction"]
         print(f"Detected reaction: {reaction}")
+        
         if reaction == "newspaper":
             print("Processing reaction ':newspaper:'")
             return self.fetch_message(event["item"]["ts"], event["item"]["channel"])
+        
         print(f"Reaction '{reaction}' not handled.")
         return {"status": "Reaction not handled"}, 200
 
@@ -76,18 +80,29 @@ class SlackIntegration(PlatformIntegration):
         }
         params = {
             "channel": channel,
-            "latest": message_id,
-            "limit": 1,
-            "inclusive": True
+            "inclusive": True,  # Ensure the exact timestamp is included
+            "latest": message_id,  # Use the ts of the message as 'latest'
+            "limit": 1  # We are only interested in 1 message
         }
+        
         response = requests.get(url, headers=headers, params=params)
-        if response.status_code == 200:
-            messages = response.json().get("messages", [])
+        
+        # Log full response from the API
+        print(f"Slack API response status code: {response.status_code}")
+        response_json = response.json()
+        print(f"Slack API response JSON: {response_json}")
+
+        if response.status_code == 200 and response_json.get("ok", False):
+            messages = response_json.get("messages", [])
             if messages:
                 message = messages[0]
                 print(f"Fetched message: {message['text']}")
                 return self.process_message(message["text"], channel)
-        print(f"Failed to fetch message. Status code: {response.status_code}")
+            else:
+                print("No messages returned in the response.")
+        else:
+            print(f"Failed to fetch message. Status code: {response.status_code}")
+        
         return {"status": "Failed to fetch message"}, 500
 
     def send_message(self, channel, message):

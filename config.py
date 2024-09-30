@@ -20,7 +20,7 @@ def get_platform():
         pass
     else:
         return SlackIntegration(
-            bot_token=os.getenv("SLACK_BOT_TOKEN")
+            bot_token=os.getenv("BOT_USER_OAUTH_TOKEN")
         )
 
 def get_ngrok_url():
