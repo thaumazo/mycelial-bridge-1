@@ -1,12 +1,14 @@
 import os
 from flask import Flask, request, jsonify
 from dotenv import load_dotenv
+
+# Load environment variables
+load_dotenv()
+
 from pyngrok import ngrok
 from integrations.slack_integration import SlackIntegration
 from config import get_platform, get_ngrok_url
 
-# Load environment variables
-load_dotenv()
 
 app = Flask(__name__)
 
