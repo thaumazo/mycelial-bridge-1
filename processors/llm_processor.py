@@ -1,5 +1,6 @@
 from utils.llm_config import get_llm_config
 
+
 # Load the LLM configuration from .env
 llm_config = get_llm_config()
 
