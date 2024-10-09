@@ -11,7 +11,26 @@ processed_messages = set()
 class SlackIntegration(PlatformIntegration):
     def __init__(self, bot_token):
         self.bot_token = bot_token
+        
+        # Call the test_auth method on initialization to verify token and permissions
+        self.test_auth()
 
+    def test_auth(self):
+        """Test Slack API authentication and log the result."""
+        url = "https://slack.com/api/auth.test"
+        headers = {
+            "Authorization": f"Bearer {self.bot_token}",
+            "Content-Type": "application/json"
+        }
+        response = requests.get(url, headers=headers)
+        auth_info = response.json()
+
+        # Log the auth info to the console
+        if auth_info.get("ok"):
+            print(f"Authentication successful! Bot User ID: {auth_info['user_id']}, Team: {auth_info['team']}")
+        else:
+            print(f"Authentication failed: {auth_info.get('error')}")
+    
     def handle_event(self, data):
         print(f"Received event data: {data}")
 
@@ -92,34 +111,76 @@ class SlackIntegration(PlatformIntegration):
 
     def fetch_message(self, message_id, channel, thread_ts):
         print(f"Fetching message with ID {message_id} from channel {channel}")
-        url = "https://slack.com/api/conversations.history"
+        
+        formatted_ts = f"{float(message_id):.6f}"
+        
+        # Use the conversations.info API to get channel details (for both public and private)
+        info_url = "https://slack.com/api/conversations.info"
         headers = {
             "Authorization": f"Bearer {self.bot_token}",
             "Content-Type": "application/json"
         }
         params = {
+            "channel": channel
+        }
+        
+        # Check the channel type (public or private)
+        info_response = requests.get(info_url, headers=headers, params=params)
+        response_json = info_response.json()
+        
+        if info_response.status_code != 200 or not response_json.get("ok", False):
+            print(f"Failed to retrieve channel info: {response_json}")
+            if response_json.get("error") == "channel_not_found":
+                print(f"Error: Bot may not be a member of the private channel {channel}. Please invite the bot to the channel.")
+            return {"status": "Failed to retrieve channel info"}, 500
+        
+        is_private = response_json.get("channel", {}).get("is_private", False)
+        
+        # Use conversations.history for fetching messages (works for both public and private)
+        url = "https://slack.com/api/conversations.history"
+        
+        # Fetch the message history
+        params = {
             "channel": channel,
-            "latest": message_id,
+            "latest": formatted_ts,  # Use the formatted timestamp
             "limit": 1,
             "inclusive": True
         }
+        
         response = requests.get(url, headers=headers, params=params)
+        
+        print(f"Response status code: {response.status_code}")
+        print(f"Response content: {response.json()}")
+        
+        # Check for successful API response
         if response.status_code == 200:
-            messages = response.json().get("messages", [])
+            response_json = response.json()
+            
+            # Check if the API response is okay and contains messages
+            if not response_json.get("ok", False):
+                print(f"Slack API error: {response_json.get('error')}")
+                return {"status": "Slack API error", "error": response_json.get("error")}, 500
+            
+            messages = response_json.get("messages", [])
+            
             if messages:
                 message = messages[0]
-
-                # Check if the message is from the bot itself, using the bot_id or user field
+                
+                # Avoid recursive processing if the message is from the bot itself
                 if 'bot_id' in message:
                     print("Ignoring message from the bot to prevent recursion.")
                     return {"status": "Ignored bot's own message"}, 200
-
+                
                 print(f"Fetched message: {message['text']}")
                 return self.process_message(message["text"], channel, thread_ts)
-        
-        print(f"Failed to fetch message. Status code: {response.status_code}")
-        return {"status": "Failed to fetch message"}, 500    
+            
+            print(f"No messages found for message_id {formatted_ts}")
+            return {"status": "No messages found"}, 404
+        else:
+            print(f"Failed to fetch message. Status code: {response.status_code}")
+            return {"status": "Failed to fetch message"}, response.status_code
 
+    
     def send_message(self, channel, message, thread_ts=None):
         print(f"Sending message to channel {channel}: {message}")
         url = "https://slack.com/api/chat.postMessage"
