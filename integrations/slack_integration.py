@@ -17,6 +17,8 @@ class SlackIntegration(PlatformIntegration):
     def __init__(self):
         # Load workspace tokens from environment
         self.workspace_tokens = self.load_workspace_tokens()
+        # Load the list of allowed user IDs from the environment
+        self.allowed_users = self.load_allowed_users()
 
     def load_workspace_tokens(self):
         """Load the Slack bot tokens from the environment variable and return them as a dictionary."""
@@ -30,6 +32,15 @@ class SlackIntegration(PlatformIntegration):
             team_id, token = pair.split(":")
             tokens[team_id] = token
         return tokens
+
+    def load_allowed_users(self):
+        """Load the Slack trigger group from the environment variable."""
+        users_str = os.getenv("SLACK_TRIGGER_GROUP")
+        if not users_str:
+            raise ValueError("Missing SLACK_TRIGGER_GROUP in the .env file.")
+        
+        # Convert the string to a list of allowed user IDs
+        return users_str.split(",")
 
     def get_token_for_workspace(self, team_id):
         """Retrieve the Slack token for a given workspace based on the team_id."""
@@ -67,6 +78,17 @@ class SlackIntegration(PlatformIntegration):
         team_id = data.get("team_id")
         if not team_id:
             raise ValueError("team_id not found in the event data.")
+
+        # Get user_id from the event data
+        user_id = data.get("event", {}).get("user")
+        if not user_id:
+            print("No user ID found in the event data.")
+            return jsonify({"status": "No user ID found in the event data"}), 400
+
+        # Check if the user is allowed to trigger workflows
+        if user_id not in self.allowed_users:
+            print(f"Unauthorized user: {user_id}. Access denied.")
+            return jsonify({"status": "Access denied: unauthorized user"}), 403
 
         # Test authentication for the workspace (team_id)
         self.test_auth(team_id)
