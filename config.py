@@ -5,13 +5,15 @@ def get_platform():
     
     if platform == "slack":
         from integrations.slack_integration import SlackIntegration  # Move import here to avoid circular import
-        bot_token = os.getenv("BOT_USER_OAUTH_TOKEN")  # Use Slack's variable name
         
-        if not bot_token:
-            raise ValueError("Missing BOT_USER_OAUTH_TOKEN environment variable")
+        # Use the new environment variable SLACK_BOT_USER_OAUTH_TOKENS
+        tokens_str = os.getenv("SLACK_BOT_USER_OAUTH_TOKENS")
+
+        if not tokens_str:
+            raise ValueError("Missing SLACK_BOT_USER_OAUTH_TOKENS environment variable.")
         
-        # Ensure the bot token is valid
-        return SlackIntegration(bot_token)
+        # Return an instance of SlackIntegration, no need to pass individual bot tokens here
+        return SlackIntegration()
     
     raise ValueError("Unsupported platform configuration")
 
