@@ -5,8 +5,10 @@ from dotenv import load_dotenv
 # Load environment variables
 load_dotenv()
 
+# Import platform-specific integrations
 from config import get_platform
 
+# Flask app for Slack
 app = Flask(__name__)
 
 # Get the platform specified in the .env file
@@ -44,6 +46,29 @@ if platform_name == "slack":
         return response
 
     if __name__ == "__main__":
+        # Check if we should use ngrok based on the .env variable
+        use_ngrok = os.getenv("USE_NGROK", "False").lower() == "true"
+
+        if use_ngrok:
+            try:
+                from pyngrok import ngrok
+
+                # Start NGROK and get the public URL
+                ngrok_tunnel = ngrok.connect(3000)
+
+                # Extract the actual public URL from the tunnel object
+                public_url = ngrok_tunnel.public_url
+
+                # Append the /events endpoint to the NGROK URL
+                full_url = f"{public_url}/events"
+
+                # Print the URL to the console for easy copy-paste
+                print(f"ngrok tunnel opened: {public_url}")
+                print(f"Event Subscription URL: {full_url}")
+            except ImportError:
+                print("Error: pyngrok is not installed. Install it with 'pip install pyngrok'.")
+
+        # Run the Flask app
         app.run(port=3000)
 
 elif platform_name == "discord":
@@ -53,5 +78,6 @@ elif platform_name == "discord":
         # Initialize and run the Discord bot
         integration = DiscordIntegration()
         integration.run()
+
 else:
     print(f"Unsupported platform specified: {platform_name}. Please update your .env file.")
