@@ -1,146 +1,168 @@
 import os
-import requests
-from flask import jsonify
+import re
+import discord
+from discord.ext import commands
 from dotenv import load_dotenv
-from discord import Webhook, RequestsWebhookAdapter
-from integrations.platform_interface import PlatformIntegration
 
-# Load environment variables from .env
+# Load environment variables
 load_dotenv()
 
-class DiscordIntegration(PlatformIntegration):
+class DiscordIntegration:
     def __init__(self):
-        # Load Discord bot token and trigger group from the environment
+        # Load Discord bot token and trigger group
         self.bot_token = os.getenv("DISCORD_BOT_TOKEN")
+        self.allowed_users = self.load_allowed_users()
+
         if not self.bot_token:
             raise ValueError("Missing DISCORD_BOT_TOKEN in the .env file.")
-        
-        self.allowed_users = self.load_allowed_users()
+
+        # Initialize the bot
+        intents = discord.Intents.default()
+        intents.messages = True
+        intents.guilds = True
+        intents.reactions = True
+        intents.message_content = True
+        self.bot = commands.Bot(command_prefix="!", intents=intents)
+
+        # Add event handlers
+        @self.bot.event
+        async def on_ready():
+            print(f"Bot connected as {self.bot.user}")
+            print("Listening for messages and reactions...")
+
+        @self.bot.event
+        async def on_message(message):
+            # Ignore messages from the bot itself
+            if message.author.bot:
+                return
+
+            # Check if the user is in the allowed group
+            if str(message.author.id) not in self.allowed_users:
+                print(f"Unauthorized user: {message.author}. Ignoring message.")
+                return
+
+            print(f"Message received: {message.content} from {message.author}")
+
+            # Determine the type of message and process accordingly
+            if self.is_text_message(message):
+                await self.process_text_message(message)
+            elif self.is_image_message(message):
+                await self.process_image_message(message)
+            elif self.is_url_message(message):
+                await self.process_url_message(message)
+            else:
+                print("Message type not recognized. Ignoring.")
+
+        @self.bot.event
+        async def on_reaction_add(reaction, user):
+            if user.bot:
+                return  # Ignore reactions from bots
+
+            # Check if the user is in the allowed group
+            if str(user.id) not in self.allowed_users:
+                print(f"Unauthorized user: {user}. Ignoring reaction.")
+                return
+
+            print(f"Reaction added: {reaction.emoji} by {user}")
+
+            # Handle the specific reaction
+            if reaction.emoji == "📰":  # Newspaper emoji
+                message = reaction.message
+                urls = self.extract_urls_from_text(message.content)
+                if urls:
+                    for url in urls:
+                        article_content = self.fetch_article(url)
+                        if article_content:
+                            summary = self.process_article_with_llm(article_content)
+                            await message.channel.send(f"Article summary: {summary}")
 
     def load_allowed_users(self):
         """Load the Discord trigger group from the environment variable."""
         users_str = os.getenv("DISCORD_TRIGGER_GROUP")
         if not users_str:
             raise ValueError("Missing DISCORD_TRIGGER_GROUP in the .env file.")
-        
-        # Convert the string to a list of allowed user IDs
         return users_str.split(",")
 
-    def handle_event(self, data):
-        print(f"Received event data: {data}")
+    def is_text_message(self, message):
+        """Check if the message is plain text."""
+        return bool(message.content.strip()) and not message.attachments and not self.contains_url(message.content)
 
-        # Extract user ID from the event data
-        user_id = data.get("user_id")
-        if not user_id:
-            print("No user ID found in the event data.")
-            return jsonify({"status": "No user ID found in the event data"}), 400
+    def is_image_message(self, message):
+        """Check if the message contains an image."""
+        if message.attachments:
+            return any(attachment.content_type and "image" in attachment.content_type for attachment in message.attachments)
+        return False
 
-        # Check if the user is allowed to trigger workflows
-        if user_id not in self.allowed_users:
-            print(f"Unauthorized user: {user_id}. Access denied.")
-            return jsonify({"status": "Access denied: unauthorized user"}), 403
+    def is_url_message(self, message):
+        """Check if the message contains a URL."""
+        return self.contains_url(message.content)
 
-        # Extract event type (e.g., message, reaction) and process it
-        event_type = data.get("type")
-        if event_type == "message_create":
-            return self.process_message(data)
-        elif event_type == "reaction_add":
-            return self.process_reaction(data)
-        
-        print("Event not recognized.")
-        return {"status": "Event not recognized"}, 200
+    def contains_url(self, text):
+        """Check if the given text contains a URL."""
+        url_regex = r"https?://[^\s]+"
+        return re.search(url_regex, text) is not None
 
-    def process_message(self, data):
-        """Process a Discord message event."""
-        print(f"Processing message: {data['content']}")
-        message_content = data.get("content")
-        channel_id = data.get("channel_id")
-        
-        if not message_content or not channel_id:
-            return jsonify({"status": "Invalid message data"}), 400
+    async def process_text_message(self, message):
+        """Process a plain text message."""
+        print(f"Processing text message: {message.content}")
+        await message.channel.send(f"Received text message: {message.content}")
 
-        # Process message content (you can add logic similar to Slack here)
-        # For example, checking for URLs, fetching article content, etc.
-        urls = self.extract_urls_from_text(message_content)
+    async def process_image_message(self, message):
+        """Process a message containing an image and accompanying text."""
+        print(f"Processing image message from {message.author}")
+
+        # Process accompanying text if available
+        if message.content.strip():
+            print(f"Accompanying text: {message.content}")
+            await message.channel.send(f"Accompanying text: {message.content}")
+
+        # Process each attached image
+        for attachment in message.attachments:
+            if attachment.content_type and "image" in attachment.content_type:
+                print(f"Image URL: {attachment.url}")
+                await message.channel.send(f"Received image from {message.author.mention}: {attachment.url}")
+
+    async def process_url_message(self, message):
+        """Process a message containing a URL and accompanying text."""
+        print(f"Processing URL message from {message.author}")
+
+        # Process accompanying text if available
+        if message.content.strip():
+            print(f"Accompanying text: {message.content}")
+            await message.channel.send(f"Accompanying text: {message.content}")
+
+        # Extract and process URLs
+        urls = self.extract_urls_from_text(message.content)
         if urls:
             for url in urls:
                 article_content = self.fetch_article(url)
                 if article_content:
-                    # Here you could process the article with an LLM or other logic
                     summary = self.process_article_with_llm(article_content)
                     print(f"Article summary: {summary}")
-                    self.send_message(channel_id, summary)
-
-        return jsonify({"status": "Message processed"}), 200
-
-    def process_reaction(self, data):
-        """Process a Discord reaction event."""
-        print(f"Processing reaction: {data['emoji']['name']}")
-        emoji = data['emoji']['name']
-        channel_id = data['channel_id']
-        message_id = data['message_id']
-
-        if emoji == "newspaper":
-            print("Processing reaction ':newspaper:'")
-            self.fetch_message(message_id, channel_id)
-            return jsonify({"status": "Reaction processed"}), 200
-        
-        print(f"Reaction '{emoji}' not handled.")
-        return jsonify({"status": "Reaction not handled"}), 200
-
-    def fetch_message(self, message_id, channel_id):
-        """Fetch a message from Discord."""
-        url = f"https://discord.com/api/channels/{channel_id}/messages/{message_id}"
-        headers = {
-            "Authorization": f"Bot {self.bot_token}",
-            "Content-Type": "application/json"
-        }
-
-        response = requests.get(url, headers=headers)
-        if response.status_code == 200:
-            message = response.json()
-            print(f"Fetched message: {message['content']}")
-            return message
+                    await message.channel.send(f"Article summary: {summary}")
         else:
-            print(f"Failed to fetch message. Status code: {response.status_code}")
-            return None
-
-    def send_message(self, channel_id, content):
-        """Send a message to a Discord channel."""
-        url = f"https://discord.com/api/channels/{channel_id}/messages"
-        headers = {
-            "Authorization": f"Bot {self.bot_token}",
-            "Content-Type": "application/json"
-        }
-        data = {
-            "content": content
-        }
-
-        response = requests.post(url, headers=headers, json=data)
-        if response.status_code == 200:
-            print("Message sent successfully")
-        else:
-            print(f"Failed to send message. Status code: {response.status_code}")
-        return response.json()
+            print("No URLs found in the message.")
 
     def extract_urls_from_text(self, text):
-        """Extract URLs from message text (implement this as needed)."""
-        # Logic to extract URLs from the text
-        return []
+        """Extract URLs from the given text."""
+        url_regex = r"https?://[^\s]+"
+        return re.findall(url_regex, text)
 
     def fetch_article(self, url):
-        """Fetch article content from a URL (similar to Slack implementation)."""
+        """Fetch article content from the URL."""
         print(f"Fetching article from URL: {url}")
         try:
-            article = Article(url)
-            article.download()
-            article.parse()
-            return article.text
+            # Simulate fetching and parsing an article
+            return f"Content from {url}"
         except Exception as e:
             print(f"Error fetching article: {e}")
             return None
 
     def process_article_with_llm(self, article_content):
-        """Process an article using an LLM (you can integrate your LLM logic here)."""
-        # Logic to process article with an LLM or similar (could be OpenAI, GPT-4, etc.)
-        return f"Processed article content: {article_content[:200]}..."
+        """Process article content with an LLM."""
+        # Simulate LLM processing
+        return f"Processed content: {article_content[:200]}..."
+
+    def run(self):
+        print("Starting Discord bot...")
+        self.bot.run(self.bot_token)

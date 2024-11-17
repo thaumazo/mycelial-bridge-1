@@ -5,49 +5,53 @@ from dotenv import load_dotenv
 # Load environment variables
 load_dotenv()
 
-from integrations.slack_integration import SlackIntegration
 from config import get_platform
 
 app = Flask(__name__)
 
-# Create an instance of the platform integration (Slack for now)
-platform = get_platform()
+# Get the platform specified in the .env file
+platform_name = os.getenv("PLATFORM", "").lower()
 
-# Define the root route for a quick "Hello, World!" check
-@app.route("/")
-def hello_world():
-    return "Hello, World! The Flask app is running!"
+if platform_name == "slack":
+    try:
+        # Create an instance of the Slack integration
+        platform = get_platform()
+        print(f"Platform initialized successfully: {platform.__class__.__name__}")
+    except ValueError as e:
+        print(f"Error initializing platform: {e}")
+        platform = None
 
-# Route for platform-specific events
-@app.route("/events", methods=["POST"])
-def events():
-    data = request.json
-    if data is None:
-        return jsonify({"error": "Invalid data format"}), 400
+    # Define the root route for a quick "Hello, World!" check
+    @app.route("/")
+    def hello_world():
+        if platform:
+            return f"Hello, World! The Flask app is running with {platform.__class__.__name__}!"
+        else:
+            return "Hello, World! Platform configuration error. Check logs for details."
 
-    # Delegate to the platform-specific handler
-    response = platform.handle_event(data)
-    return response
+    # Route for platform-specific events
+    @app.route("/events", methods=["POST"])
+    def events():
+        if not platform:
+            return jsonify({"error": "Platform not configured correctly."}), 500
 
-if __name__ == "__main__":
-    # Check if we should use ngrok based on the .env variable
-    use_ngrok = os.getenv("USE_NGROK", "False").lower() == "true"
+        data = request.json
+        if data is None:
+            return jsonify({"error": "Invalid data format"}), 400
 
-    if use_ngrok:
-        from pyngrok import ngrok
+        # Delegate to the platform-specific handler
+        response = platform.handle_event(data)
+        return response
 
-        # Start NGROK and get the public URL
-        ngrok_tunnel = ngrok.connect(3000)
+    if __name__ == "__main__":
+        app.run(port=3000)
 
-        # Extract the actual public URL from the tunnel object
-        public_url = ngrok_tunnel.public_url
+elif platform_name == "discord":
+    from integrations.discord_integration import DiscordIntegration
 
-        # Append the /events endpoint to the NGROK URL
-        full_url = f"{public_url}/events"
-
-        # Print the URL to the console for easy copy-paste
-        print(f"ngrok tunnel opened: {public_url}")
-        print(f"Slack Event Subscription URL: {full_url}")
-
-    # Run the Flask app
-    app.run(port=3000)
+    if __name__ == "__main__":
+        # Initialize and run the Discord bot
+        integration = DiscordIntegration()
+        integration.run()
+else:
+    print(f"Unsupported platform specified: {platform_name}. Please update your .env file.")
